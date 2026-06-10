@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>超ロング＆激ムズ2Dマリオ - 3大ネクストステージ</title>
+    <style>
+        body {
+            margin: 0; background: #000;
+            display: flex; justify-content: center; align-items: center;
+            height: 100vh; color: white; font-family: sans-serif; overflow: hidden;
+        }
+        canvas { border: 4px solid #fff; box-shadow: 0 0 30px rgba(255,255,255,0.2); }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="850" height="480"></canvas>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+const GRAVITY = 0.65;
+const KEYS = {};
+let gameActive = true;
+let currentStage = 1;
+let cameraX = 0;
+
+const player = {
+    x: 50, y: 200, width: 26, height: 38,
+    vx: 0, vy: 0, speed: 4.8, jumpForce: 13.0,
+    grounded: false, jumpCount: 0, maxJumps: 2,
+    score: 0, lives: 3
+};
+
+const stageThemes = {
+    1: { bg: "#4a75e6", ground: "#c86010", block: "#a03010", name: "AREA 1: 終わらない空中庭園" }, 
+    2: { bg: "#250000", ground: "#441105", block: "#661105", name: "AREA 2: 連動灼熱リフト" }, 
+    3: { bg: "#02020a", ground: "#111122", block: "#cc0044", name: "AREA 3: 絶望のファイナルキャッスル" }  
+};
+
+let platforms = [];
+let movingPlatforms = [];
+let coins = [];
+let enemies = [];
+let nextPipe = { x: 0, y: 0, width: 50, height: 80 }; // 次のゲームへの入り口（土管）
+
+function loadStage(stageNum) {
+    platforms = []; movingPlatforms = []; coins = []; enemies = [];
+
+    if (stageNum === 1) {
+        // 【エリア1】全長5,200px：超精密な大ジャンプを求められる空中回廊
+        platforms = [
+            { x: 0, y: 400, width: 400, height: 80 },
+            { x: 550, y: 320, width: 80, height: 30 },
+            { x: 720, y: 230, width: 40, height: 30 },
+            { x: 880, y: 320, width: 100, height: 160 }, // 土管風の壁
+            { x: 1100, y: 350, width: 80, height: 30 },
+            { x: 1300, y: 240, width: 50, height: 30 },
+            { x: 1480, y: 160, width: 40, height: 30 },  // 限界ジャンプ
+            { x: 1650, y: 280, width: 250, height: 200 },
+            { x: 2050, y: 360, width: 80, height: 30 },
+            { x: 2250, y: 260, width: 80, height: 30 },
+            { x: 2480, y: 180, width: 40, height: 30 },
+            { x: 2650, y: 300, width: 300, height: 180 }, // 中間セーフゾーン
+            { x: 3100, y: 380, width: 80, height: 30 },
+            { x: 3300, y: 280, width: 60, height: 30 },
+            { x: 3500, y: 190, width: 60, height: 30 },
+            { x: 3750, y: 280, width: 150, height: 200 },
+            { x: 4050, y: 360, width: 80, height: 30 },
+            { x: 4250, y: 250, width: 50, height: 30 },
+            { x: 4450, y: 160, width: 40, height: 30 },
+            { x: 4650, y: 250, width: 50, height: 30 },
+            { x: 4850, y: 380, width: 350, height: 100 } // ゴールエリア
+        ];
+        coins = [
+            { x: 580, y: 270 }, { x: 730, y: 180 }, { x: 1490, y: 110 },
+            { x: 2280, y: 210 }, { x: 3320, y: 230 }, { x: 4460, y: 110 }
+        ];
+        enemies = [
+            { x: 250, y: 370, vx: -1.5, minX: 100, maxX: 380 },
+            { x: 1750, y: 250, vx: -2.0, minX: 1670, maxX: 1880 },
+            { x: 2750, y: 270, vx: -1.8, minX: 2670, maxX: 2900 },
+            { x: 3800, y: 250, vx: -2.2, minX: 3760, maxX: 3880 },
+            { x: 4950, y: 350, vx: -2.0, minX: 4880, maxX: 5100 }
+        ];
+        nextPipe.x = 5100; nextPipe.y = 300;
+    } 
+    else if (stageNum === 2) {
+        // 【エリア2】全長5,300px：網の目のように配置された連動高速リフト地帯
+        platforms = [
+            { x: 0, y: 400, width: 200, height: 80 },
+            { x: 800, y: 300, width: 120, height: 40 },
+            { x: 1700, y: 350, width: 150, height: 130 },
+            { x: 2600, y: 220, width: 100, height: 40 },
+            { x: 3500, y: 320, width: 120, height: 160 },
+            { x: 4300, y: 250, width: 80, height: 40 },
+            { x: 4900, y: 400, width: 400, height: 80 }
+        ];
+        movingPlatforms = [
+            { x: 260, y: 360, width: 70, height: 16, startX: 260, startY: 360, type: 'h', range: 130, speed: 0.045, time: 0 },
+            { x: 550, y: 380, width: 60, height: 16, startX: 550, startY: 380, type: 'v', range: 110, speed: 0.055, time: 0 },
+            { x: 1000, y: 260, width: 70, height: 16, startX: 1000, startY: 260, type: 'h', range: 160, speed: 0.05, time: 0 },
+            { x: 1350, y: 320, width: 60, height: 16, startX: 1350, startY: 320, type: 'v', range: 130, speed: 0.065, time: 3.1 },
+            { x: 1950, y: 280, width: 70, height: 16, startX: 1950, startY: 280, type: 'h', range: 180, speed: 0.05, time: 0 },
+            { x: 2300, y: 340, width: 60, height: 16, startX: 2300, startY: 340, type: 'v', range: 120, speed: 0.06, time: 1.5 },
+            { x: 2850, y: 220, width: 75, height: 16, startX: 2850, startY: 220, type: 'h', range: 220, speed: 0.06, time: 0 },
+            { x: 3200, y: 280, width: 60, height: 16, startX: 3200, startY: 280, type: 'v', range: 130, speed: 0.07, time: 0 },
+            { x: 3750, y: 340, width: 70, height: 16, startX: 3750, startY: 340, type: 'h', range: 150, speed: 0.055, time: 2.0 },
+            { x: 4050, y: 240, width: 65, height: 16, startX: 4050, startY: 240, type: 'v', range: 120, speed: 0.065, time: 0 },
+            { x: 4500, y: 280, width: 70, height: 16, startX: 4500, startY: 280, type: 'h', range: 150, speed: 0.06, time: 0.5 }
+        ];
+        coins = [
+            { x: 300, y: 260 }, { x: 580, y: 210 }, { x: 1100, y: 160 },
+            { x: 2000, y: 180 }, { x: 2950, y: 120 }, { x: 4100, y: 120 }
+        ];
+        enemies = [
+            { x: 850, y: 270, vx: -1.6, minX: 810, maxX: 900 },
+            { x: 1750, y: 320, vx: -1.5, minX: 1710, maxX: 1830 },
+            { x: 3550, y: 290, vx: -2.0, minX: 3510, maxX: 3600 }
+        ];
+        nextPipe.x = 5150; nextPipe.y = 320;
+    } 
+    else if (stageNum === 3) {
+        // 【エリア3】全長5,500px：足場はわずか30マスのドット。超高速敵が飛び交う最狂の城
+        platforms = [
+            { x: 0, y: 400, width: 150, height: 80 },
+            { x: 240, y: 320, width: 30, height: 20 },  // 極小ドット足場群
+            { x: 380, y: 240, width: 30, height: 20 },
+            { x: 520, y: 170, width: 30, height: 20 },
+            { x: 700, y: 280, width: 60, height: 20 },
+            { x: 880, y: 360, width: 30, height: 20 },
+            { x: 1020, y: 270, width: 30, height: 20 },
+            { x: 1160, y: 190, width: 30, height: 20 },
+            { x: 1320, y: 300, width: 100, height: 180 }, // トラップ床
+            { x: 1580, y: 380, width: 30, height: 20 },
+            { x: 1740, y: 290, width: 30, height: 20 },
+            { x: 1900, y: 200, width: 35, height: 20 },
+            { x: 2100, y: 280, width: 30, height: 20 },
+            { x: 2260, y: 360, width: 30, height: 20 },
+            { x: 2450, y: 250, width: 120, height: 230 }, // 中間高台
+            { x: 2720, y: 160, width: 30, height: 20 },
+            { x: 2880, y: 250, width: 35, height: 20 },
+            { x: 3050, y: 340, width: 30, height: 20 },
+            { x: 3200, y: 250, width: 30, height: 20 },
+            { x: 3380, y: 170, width: 35, height: 20 },
+            { x: 3550, y: 260, width: 30, height: 20 },
+            { x: 3720, y: 350, width: 30, height: 20 },
+            { x: 3900, y: 260, width: 120, height: 220 }, // ラスト前高台
+            { x: 4150, y: 180, width: 30, height: 20 },
+            { x: 4300, y: 270, width: 35, height: 20 },
+            { x: 4480, y: 360, width: 30, height: 20 },
+            { x: 4650, y: 260, width: 30, height: 20 },
+            { x: 4800, y: 170, width: 30, height: 20 },
+            { x: 5000, y: 400, width: 500, height: 80 }  // 栄光のファイナル床
+        ];
+        movingPlatforms = [
+            { x: 790, y: 260, width: 45, height: 16, startX: 790, startY: 260, type: 'v', range: 100, speed: 0.07, time: 0 },
+            { x: 1460, y: 320, width: 50, height: 16, startX: 1460, startY: 320, type: 'h', range: 60, speed: 0.065, time: 0 },
+            { x: 1650, y: 240, width: 45, height: 16, startX: 1650, startY: 240, type: 'v', range: 130, speed: 0.08, time: 1.5 },
+            { x: 2600, y: 220, width: 50, height: 16, startX: 2600, startY: 220, type: 'h', range: 50, speed: 0.08, time: 0 },
+            { x: 4050, y: 220, width: 45, height: 16, startX: 4050, startY: 220, type: 'v', range: 110, speed: 0.085, time: 0 }
+        ];
+        coins = [
+            { x: 245, y: 260 }, { x: 525, y: 110 }, { x: 1165, y: 130 },
+            { x: 1905, y: 140 }, { x: 2725, y: 100 }, { x: 4305, y: 210 }
+        ];
+        enemies = [
+            { x: 1350, y: 270, vx: -2.2, minX: 1325, maxX: 1415 },
+            { x: 2460, y: 220, vx: -2.8, minX: 2455, maxX: 2565 },
+            { x: 3910, y: 230, vx: -3.0, minX: 3905, maxX: 4015 },
+            { x: 5100, y: 370, vx: -4.5, minX: 5020, maxX: 5350 } // 最速の番人
+        ];
+        nextPipe.x = 5350; nextPipe.y = 320;
+    }
+
+    player.x = 50; player.y = 200; player.vx = 0; player.vy = 0; player.jumpCount = 0;
+    cameraX = 0;
+}
+
+let canJumpAgain = true;
+window.addEventListener("keydown", e => {
+    KEYS[e.code] = true;
+    if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
+        if (canJumpAgain && player.jumpCount < player.maxJumps && gameActive) {
+            player.vy = -player.jumpForce;
+            player.grounded = false;
+            player.jumpCount++;
+            canJumpAgain = false;
+        }
+    }
+});
+window.addEventListener("keyup", e => {
+    KEYS[e.code] = false;
+    if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") canJumpAgain = true;
+});
+
+function checkCollision(rect1, rect2) {
+    return rect1.x < rect2.x + rect2.width &&
+           rect1.x + rect1.width > rect2.x &&
+           rect1.y < rect2.y + rect2.height &&
+           rect1.y + rect1.height > rect2.y;
+}
+
+function resetPlayer() {
+    player.lives--;
+    if (player.lives <= 0) {
+        gameActive = false;
+    } else {
+        player.x = 50; player.y = 200; player.vx = 0; player.vy = 0; player.jumpCount = 0;
+        cameraX = 0;
+    }
+}
+
+function update() {
+    if (!gameActive) return;
+
+    if (KEYS["ArrowRight"] || KEYS["KeyD"]) player.vx = player.speed;
+    else if (KEYS["ArrowLeft"] || KEYS["KeyA"]) player.vx = -player.speed;
+    else player.vx = 0;
+
+    player.vy += GRAVITY; player.x += player.vx; player.y += player.vy;
+    if (player.x < 0) player.x = 0;
+    player.grounded = false;
+
+    // 1. 移動リフトの判定
+    movingPlatforms.forEach(plat => {
+        plat.time += plat.speed; let offsetX = 0;
+        if (plat.type === 'h') {
+            const prevX = plat.x; plat.x = plat.startX + Math.sin(plat.time) * plat.range; offsetX = plat.x - prevX;
+        } else {
+            plat.y = plat.startY + Math.sin(plat.time) * plat.range;
+        }
+        if (checkCollision(player, plat)) {
+            if (player.vy > 0 && player.y + player.height - player.vy <= plat.y + 8) {
+                player.y = plat.y - player.height; player.vy = 0; player.grounded = true; player.jumpCount = 0; player.x += offsetX;
+            } else if (player.vy < 0 && player.y - player.vy >= plat.y + plat.height - 8) {
+                player.y = plat.y + plat.height; player.vy = 0;
+            }
+        }
+    });
+
+    // 2. 通常ブロックの判定
+    platforms.forEach(plat => {
+        if (checkCollision(player, plat)) {
+            if (player.vy > 0 && player.y + player.height - player.vy <= plat.y + 10) {
+                player.y = plat.y - player.height; player.vy = 0; player.grounded = true; player.jumpCount = 0;
+            } else if (player.vy < 0 && player.y - player.vy >= plat.y + plat.height - 10) {
+                player.y = plat.y + plat.height; player.vy = 0;
+            } else if (player.vx > 0) { player.x = plat.x - player.width; } 
+              else if (player.vx < 0) { player.x = plat.x + plat.width; }
+        }
+    });
+
+    if (player.y > canvas.height) resetPlayer();
+
+    // 3. コイン判定
+    coins.forEach((coin, idx) => {
+        if (checkCollision(player, { x: coin.x, y: coin.y, width: 15, height: 15 })) {
+            player.score += 100; coins.splice(idx, 1);
+        }
+    });
+
+    // 4. 敵判定
+    enemies.forEach(enemy => {
+        enemy.x += enemy.vx; if (enemy.x < enemy.minX || enemy.x > enemy.maxX) enemy.vx *= -1;
+        if (checkCollision(player, { x: enemy.x, y: enemy.y, width: 30, height: 30 })) {
+            if (player.vy > 0 && player.y + player.height - player.vy <= enemy.y + 12) {
+                player.vy = -8; player.jumpCount = 1; player.score += 200; enemies.splice(enemies.indexOf(enemy), 1);
+            } else { resetPlayer(); }
+        }
+    });
+
+    // 5. ネクストステージ（緑の土管）の判定
+    if (checkCollision(player, nextPipe)) {
+        if (currentStage < 3) {
+            currentStage++; loadStage(currentStage); // 次のネクストゲームを生成
+        } else {
+            gameActive = false; // 全面クリア
+        }
+    }
+
+    // カメラのスクロール（プレイヤーを中央に捉える）
+    if (player.x > canvas.width / 2) { cameraX = player.x - canvas.width / 2; }
+}
+
+function draw() {
+    const theme = stageThemes[currentStage];
+    ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save(); ctx.translate(-cameraX, 0);
+
+    // 固定ブロック
+    ctx.fillStyle = theme.ground;
+    platforms.forEach(plat => {
+        ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
+        ctx.strokeStyle = "#000"; ctx.strokeRect(plat.x, plat.y, plat.width, plat.height);
+    });
+
+    // 移動リフト
+    ctx.fillStyle = "#999999";
+    movingPlatforms.forEach(plat => {
+        ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
+        ctx.strokeStyle = "#000"; ctx.strokeRect(plat.x, plat.y, plat.width, plat.height);
+    });
+
+    // コイン
+    ctx.fillStyle = "#fcc018";
+    coins.forEach(coin => {
+        ctx.beginPath(); ctx.arc(coin.x + 7, coin.y + 7, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "#000"; ctx.stroke();
+    });
+
+    // 敵
+    ctx.fillStyle = "#a81000";
+    enemies.forEach(enemy => {
+        ctx.fillRect(enemy.x, enemy.y, 30, 30);
+        ctx.fillStyle = "#fff"; ctx.fillRect(enemy.x + 4, enemy.y + 6, 6, 6); ctx.fillRect(enemy.x + 20, enemy.y + 6, 6, 6);
+        ctx.fillStyle = "#a81000";
+    });
+
+    // ネクストステージへの緑の土管
+    ctx.fillStyle = "#00a800"; ctx.fillRect(nextPipe.x, nextPipe.y, nextPipe.width, nextPipe.height);
+    ctx.fillStyle = "#007000"; ctx.fillRect(nextPipe.x - 4, nextPipe.y, nextPipe.width + 8, 20);
+    ctx.strokeStyle = "#000"; ctx.strokeRect(nextPipe.x, nextPipe.y, nextPipe.width, nextPipe.height); ctx.strokeRect(nextPipe.x - 4, nextPipe.y, nextPipe.width + 8, 20);
+
+    // マリオ風プレイヤー
+    ctx.fillStyle = "#e45c10"; ctx.fillRect(player.x, player.y, player.width, player.height); 
+    ctx.fillStyle = "#0044bc"; ctx.fillRect(player.x, player.y + 18, player.width, player.height - 18); 
+    ctx.fillStyle = "#e45c10"; ctx.fillRect(player.x - 2, player.y, player.width + 4, 7); 
+
+    ctx.restore();
+
+    // UIオーバーレイ
+    ctx.fillStyle = "#fff"; ctx.font = "bold 18px sans-serif";
+    ctx.fillText(theme.name, 20, 35);
+    ctx.fillText(`SCORE: ${player.score}`, 400, 35);
+    ctx.fillText(`LIVES: ${player.lives > 0 ? "❤️".repeat(player.lives) : "💀"}`, 720, 35);
+
+    if (player.lives <= 0) {
+        ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "red"; ctx.font = "bold 45px sans-serif"; ctx.fillText("GAME OVER", canvas.width / 2 - 130, canvas.height / 2);
+    } else if (!gameActive && player.lives > 0) {
+        ctx.fillStyle = "rgba(0,0,0,0.9)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "yellow"; ctx.font = "bold 40px sans-serif";
+        ctx.fillText("👑 全エリア完全制覇 👑", canvas.width / 2 - 200, canvas.height / 2);
+    }
+}
+
+function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+loadStage(1); gameLoop();
+</script>
+
+</body>
+</html>
